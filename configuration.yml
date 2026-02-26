@@ -1,0 +1,29 @@
+dataset_params:
+  path: 'data/train/images'
+
+diffusion_params:
+  timesteps: 1000
+  beta_begin: 0.0001
+  beta_end: 0.02
+
+model_params:
+  image_channels: 1
+  image_size: 28
+  down_channels: [32, 64, 128, 256]
+  mid_channels: [256, 256, 128]
+  down_sample: [True, True, False]
+  time_emb_dim: 128
+  num_down_layers: 2
+  num_mid_layers: 2
+  num_up_layers: 2
+  num_heads: 4
+
+
+train_param:
+  output_folder: 'default'
+  batch_size: 128
+  num_epochs: 300
+  samples: 100
+  rows: 10
+  learning_rate: 0.0001
+  checkpoint_file: 'ddpm_wavelet.pth'
