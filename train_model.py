@@ -39,8 +39,8 @@ def train(args):
 
     
     #dataset call
-    path='data/'
-    dataset=datasets.ImageFolder(root=path,transform=transforms.Compose([
+    
+    dataset=datasets.ImageFolder(root=dataset_config['path'],transform=transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
     transforms.Resize((64,64)),   # even 64×64 if CPU
     transforms.ToTensor(),
@@ -54,7 +54,7 @@ def train(args):
     train_loader =  DataLoader(dataset=train_dataset,batch_size=train_config['batch_size'],shuffle=train_config['shuffle_bool'])
 
 
-    model = unet.Unet(model_config).to(device='gpu')
+    model = unet.Unet(model_config).to(device=device)
     model.train()
 
 
@@ -81,11 +81,12 @@ def train(args):
         for image in tqdm(train_loader):
             optimizer.zero_grad()
             image=image.float().to(device=device)
-
+            x_hat=torch.zeros(*image.shape)  ######pass ll
             noise=torch.randn_like(image).to(device=device)
 
             t=torch.randint(0,diffusion_config['timesteps'],(image.shape[0],)).to(device=device)
-
+            
+            noise=scheduler.loss_coeff(noise,t,image,x_hat)  #to calculte loss coeff
             noisy_image=scheduler.added_noise(image,t,noise)
             noise_pred=model(noisy_image,t)
 
@@ -95,34 +96,8 @@ def train(args):
             optimizer.step()
         print('epoch:{} and Loss:{.4f}'.format(
             epoch_idx+1,np.mean(losses)
-        ))    
+        )) 
+        torch.save(model.state_dict(),os.path.join(train_config['output_folder'],train_config['checkpoint_file']))   
 
-def sampling(model,schedular,train_config,model_config,diffusion_config):
-    x_t=torch.randn((train_config['samples'],
-                     model_config['image_channels'],
-                     model_config['image_size'],
-                     model_config['image_size'])).to(device=device)
-    
-
-
-    for i in tqdm(reversed(range(diffusion_config['timesteps']))):
-
-        noise_pred=model(x_t,torch.as_tensor(i).unsqueeze(0).to(device))
-
-        x_t,x_0_pred= schedular.sample_prev_timestep(x_t,noise_pred,torch.as_tensor(i).unsqueeze(0).to(device))
-
-
-        images=torch.clamp(x_t,-1,1)
-        images=(images+1)/2 #to breing back original
-
-        grid=make_grid(images,nrow=train_config['rows'])
-
-        image=transforms.ToPILImage()(grid)
-
-        if not os.path.exists(os.path.join(train_config['output_folder'],'samples')):
-            os.mkdir(os.path.join(train_config['output_folder'],'samples'))
-
-        image.save(os.path.join(train_config['output_folder'],'samples','x_0_{}.png'.format(i)))
-        image.close() 
 
      
