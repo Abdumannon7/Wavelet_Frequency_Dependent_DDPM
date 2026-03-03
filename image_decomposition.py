@@ -9,8 +9,9 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import pywt
 
-
-def dwt_matrix(wavelet_name='haar', size=8):
+def dwt_matrix(size, wavelet_name='haar'):
+    # size should be the size of the image changed the input of the function to the image
+    # to get its sizes
     wavelet = pywt.Wavelet(wavelet_name)
     lo = np.array(wavelet.dec_lo)
     hi = np.array(wavelet.dec_hi)
@@ -42,17 +43,12 @@ def dwt(input, matrix_Low, matrix_High):
         HH = torch.matmul(H, matrix_High.t())
         return LL, LH, HL, HH
 
-
-
-def idwt_matrix(wavelet_name='haar', size=8):
+def idwt_matrix(size, wavelet_name='haar'):
     wavelet = pywt.Wavelet(wavelet_name)
-    lo = np.array(wavelet.rec_lo)   
-    hi = np.array(wavelet.rec_hi)
-
+    lo = np.array(wavelet.rec_lo)[::-1] # need to reverse the matrix
+    hi = np.array(wavelet.rec_hi)[::-1]
     half = size // 2
     filter_len = len(lo)
-
-   
     matrix_Low_syn  = np.zeros((size, half))
     matrix_High_syn = np.zeros((size, half))
 
@@ -70,11 +66,7 @@ def idwt_matrix(wavelet_name='haar', size=8):
 def idwt(LL,LH,HL,HH,matrix_Low_syn,matrix_High_syn):
         L = torch.matmul(LL, matrix_Low_syn.t()) + torch.matmul(LH, matrix_High_syn.t())
         H = torch.matmul(HL, matrix_Low_syn.t()) + torch.matmul(HH, matrix_High_syn.t())
-
-   
         output = torch.matmul(matrix_Low_syn, L) + torch.matmul(matrix_High_syn, H)
-
-
         return output
 
 
@@ -82,20 +74,23 @@ def idwt(LL,LH,HL,HH,matrix_Low_syn,matrix_High_syn):
 
 
 
-# with h5py.File('C:/Users/aditi/Downloads/volume_1_slice_101.h5','r') as f:
-#    print(f.keys)
+with h5py.File('volume_1_slice_101.h5','r') as f:
+   print(f.keys)
 
-#    img=f['image'][:, :, 3] #240 240 4
+   img=f['image'][:, :, 3] #240 240 4
 
 
 
-img=decode.h5_to_jpg('C:/Users/aditi/Downloads/volume_1_slice_101.h5',3,True)
+# img=decode.h5_to_jpg('volume_1_slice_101.h5',3,True)
+
 print(img.shape)
 print(img.dtype)
 img_last = torch.tensor(img).float()
-
-matrix_Low, matrix_High = dwt_matrix() 
-LL, LH, HL, HH=dwt(img_last,matrix_Low,matrix_High)
+img_matrix = np.array(img)
+H, W = img_matrix.shape[:2]
+size = max(H, W)
+matrix_Low, matrix_High = dwt_matrix(size)
+LL, LH, HL, HH = dwt(img_last,matrix_Low,matrix_High)
 print(LL.shape)
 
 
@@ -109,7 +104,7 @@ plt.imshow(HH,cmap='gray')
 
 plt.show()
 
-mat_low,mat_high=idwt_matrix()
+mat_low,mat_high=idwt_matrix(size)
 img_back=idwt(LL,LH,HL,HH,mat_low,mat_high)
 plt.imshow(img_back,cmap='gray')
 plt.show()
