@@ -8,8 +8,8 @@ import torch
 from torch.autograd import Function
 
 class DWTFunction_2D(Function):
-    @staticmethod
-    def forward(ctx, input, matrix_Low, matrix_High):
+    # @staticmethod
+    def forward(input, matrix_Low, matrix_High):
         L = torch.matmul(matrix_Low, input)
         H = torch.matmul(matrix_High, input)
         LL = torch.matmul(L, matrix_Low.t())
@@ -20,9 +20,23 @@ class DWTFunction_2D(Function):
         # nonzero_mask_Low_1 = (         != 0).float()
         nonzero_mask_High = (matrix_High != 0).float()
         # nonzero_mask_High_1 = (matrix_High_1 != 0).float()
-        ctx.save_for_backward(input, matrix_Low, matrix_High, L, H, nonzero_mask_Low, nonzero_mask_High)
+        # ctx.save_for_backward(input, matrix_Low, matrix_High, L, H, nonzero_mask_Low, nonzero_mask_High)
 
         return LL, LH, HL, HH
+    # def forward(ctx, input, matrix_Low, matrix_High):
+    #     L = torch.matmul(matrix_Low, input)
+    #     H = torch.matmul(matrix_High, input)
+    #     LL = torch.matmul(L, matrix_Low.t())
+    #     LH = torch.matmul(L, matrix_High.t())
+    #     HL = torch.matmul(H, matrix_Low.t())
+    #     HH = torch.matmul(H, matrix_High.t())
+    #     nonzero_mask_Low = (matrix_Low != 0).float()
+    #     # nonzero_mask_Low_1 = (         != 0).float()
+    #     nonzero_mask_High = (matrix_High != 0).float()
+    #     # nonzero_mask_High_1 = (matrix_High_1 != 0).float()
+    #     ctx.save_for_backward(input, matrix_Low, matrix_High, L, H, nonzero_mask_Low, nonzero_mask_High)
+
+    #     return LL, LH, HL, HH
 
     @staticmethod
     def backward(ctx, grad_LL, grad_LH, grad_HL, grad_HH):
