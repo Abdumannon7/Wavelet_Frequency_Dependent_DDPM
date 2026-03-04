@@ -19,8 +19,9 @@ model_params:
   num_heads: 4
 
 
-train_param:
+train_params:
   output_folder: 'default'
+  shuffle_bool: true
   batch_size: 128
   num_epochs: 300
   samples: 100

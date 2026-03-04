@@ -1,19 +1,23 @@
 import torch as t
+import torch.nn as nn
 
 class LinearNoiseSampler(nn.Module):
     def __init__(self,timesteps,beta_begin,beta_end):
+        super().__init__()
         self.timesteps = timesteps
         self.beta_begin=beta_begin
         self.beta_end=beta_end
 
-        self.lambdas = t.linspace(timesteps,0,1)  #to account for conditioned element
-        self.betas=t.linspace(timesteps,beta_begin,beta_end)
-        self.alpha=1-self.betas
+        # register_buffer so tensors move to GPU with .to(device)
+        self.register_buffer('lambdas', t.linspace(0,1,timesteps))
+        self.register_buffer('betas', t.linspace(beta_begin,beta_end, timesteps))
+        self.register_buffer('alpha', 1-self.betas)
 
-        self.alpha_cumulative = t.cumprod(self.alpha,dim=0)
-        self.alpha_cumulative_sqrt =  t.sqrt(self.alpha_cumulative)
-        self.alpha_cumulative_1_sqrt= t.sqrt(1-self.alpha_cumulative)
-        self.deltas = (1-self.alpha_cumulative) - ((self.lambdas**2)* self.alpha_cumulative)
+        self.register_buffer('alpha_cumulative', t.cumprod(self.alpha,dim=0))
+        self.register_buffer('alpha_cumulative_sqrt', t.sqrt(self.alpha_cumulative))
+        self.register_buffer('alpha_cumulative_1_sqrt', t.sqrt(1-self.alpha_cumulative))
+        # clamp to prevent negative values which produce NaN in sqrt during sampling
+        self.register_buffer('deltas', t.clamp((1-self.alpha_cumulative) - ((self.lambdas**2)* self.alpha_cumulative), min=1e-8))
 
 
     def added_noise(self,x_0,time,noise,x_hat):
@@ -47,18 +51,11 @@ class LinearNoiseSampler(nn.Module):
         
         phi_x= ((delta_t_1*(1-lambda_t)*sqrt_alpha)/(delta_t*(1-lambda_t_1))) + (((1-lambda_t_1)*delta_t_t1)/(delta_t*sqrt_alpha))
         phi_x_hat = ((lambda_t_1*delta_t)-((lambda_t*(1-lambda_t)*self.alpha[time]*delta_t_1)/(1-lambda_t_1)))*self.alpha_cumulative_sqrt[time-1]/delta_t
-        phi_noise = (1-lambda_t_1*delta_t_t1*self.alpha_cumulative_1_sqrt)/(delta_t*sqrt_alpha)
+        phi_noise = (1-lambda_t_1*delta_t_t1*self.alpha_cumulative_1_sqrt[time])/(delta_t*sqrt_alpha)
   
         # mean_pred=(1/t.sqrt(self.alpha[time]))*(x_t-(((self.betas[time])/(self.alpha_cumulative_1_sqrt[time]))*noise_pred))
         mean_pred = (phi_x*x_t)+(phi_x_hat*x_hat)-(phi_noise*noise_pred)
-        
-
-
-
-
-
-  
-        mean_pred=0
+        # mean_pred=0
         if time==0:
             return mean_pred , x_0,x_hat
         
@@ -82,7 +79,7 @@ class LinearNoiseSampler(nn.Module):
         lambda_t = self.lambdas[time].reshape(batch_size,1,1,1)
         delta_t_sqrt = t.sqrt(self.deltas[time]).reshape(batch_size,1,1,1)
 
-        coeff=alpha_cum_1_sqrt_inv*((lambda_t*alpha_cum_sqrt(x_hat-x_0))+(delta_t_sqrt*noise))
+        coeff=alpha_cum_1_sqrt_inv*((lambda_t*alpha_cum_sqrt*(x_hat-x_0))+(delta_t_sqrt*noise))
 
         return coeff
 
