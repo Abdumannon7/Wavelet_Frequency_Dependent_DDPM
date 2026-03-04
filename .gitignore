@@ -1,3 +1,7 @@
 .vscode
 *.h5
 volume*.jpg
+__pycache__
+*.pyc
+*.pkl
+*.log

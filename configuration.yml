@@ -1,5 +1,21 @@
 dataset_params:
-  path: 'data/train/images'
+  csv_path: "BraTS20 Training Metadata.csv"
+  data_root: "../input/brats2020-training-data/BraTS2020_training_data/content/data/"
+  
+  # Filtering Thresholds
+  min_slice: 40
+  max_slice: 124
+  tumor_threshold: 100
+  
+  # Training Target ('significant_tumor' or 'no_tumor')
+  target_class: "significant_tumor"
+  
+  # DataLoader params
+  batch_size: 128
+  shuffle_bool: true
+  num_workers: 4
+  channel_index: 3
+
 
 diffusion_params:
   timesteps: 1000
@@ -27,4 +43,5 @@ train_params:
   samples: 100
   rows: 10
   learning_rate: 0.0001
+  shuffle_bool: true
   checkpoint_file: 'ddpm_wavelet.pth'
