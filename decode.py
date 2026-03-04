@@ -7,6 +7,38 @@ from PIL import Image
 import os
 
 
+def h5_to_imgarray(h5_path, channel_index=3, normalize=True):
+    """
+    Extract a single channel from an HDF5 file and return it as a numpy array.
+    """
+    try:
+        with h5py.File(h5_path, 'r') as f:
+            # Get the image data - shape is (240, 240, 4)
+            image_data = f['image'][:]
+        
+        # Extract the specified channel
+        if image_data.shape[2] <= channel_index:
+            raise ValueError(f"Channel index {channel_index} is out of range. Image has {image_data.shape[2]} channels.")
+        
+        channel_data = image_data[:, :, channel_index]
+        
+        # Normalize to 0-255 range
+        if normalize:
+            c_min, c_max = np.min(channel_data), np.max(channel_data)
+            # Handle case where all values are the same (e.g., empty slice)
+            if c_max == c_min:
+                img_array = np.zeros_like(channel_data, dtype=np.uint8)
+            else:
+                img_array = ((channel_data - c_min) / (c_max - c_min) * 255).astype(np.uint8)
+        else:
+            img_array = np.clip(channel_data, 0, 255).astype(np.uint8)
+            
+        return img_array
+        
+    except Exception as e:
+        print(f"Error reading {h5_path}: {str(e)}")
+        return None
+
 def h5_to_jpg(h5_path, output_jpg_path, channel_index=0, normalize=True):
     """
     Convert a single channel from an HDF5 file to a JPG image.
