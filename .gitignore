@@ -1,4 +1,5 @@
 .vscode
+.idea/
 *.h5
 volume*.jpg
 __pycache__
