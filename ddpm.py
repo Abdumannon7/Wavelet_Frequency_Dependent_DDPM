@@ -60,7 +60,7 @@ class LinearNoiseSampler(nn.Module):
   
         mean_pred=0
         if time==0:
-            return mean_pred , x_0
+            return mean_pred , x_0,x_hat
         
         else:
             # var=((self.betas[time])*(1-self.alpha_cumulative[time-1]))/(1-self.alpha_cumulative[time])
@@ -68,7 +68,7 @@ class LinearNoiseSampler(nn.Module):
 
             # sigma = var**0.5
             #reparametrisation trick
-            return t.randn(x_t.shape).to(x_t.device)*sigma + mean_pred , x_0
+            return t.randn(x_t.shape).to(x_t.device)*sigma + mean_pred , x_0,x_hat
 
    
 

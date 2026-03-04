@@ -74,7 +74,7 @@ def idwt(LL,LH,HL,HH,matrix_Low_syn,matrix_High_syn):
 
 
 
-with h5py.File('volume_1_slice_101.h5','r') as f:
+with h5py.File("C:/Users/aditi/Downloads/volume_1_slice_101.h5",'r') as f:
    print(f.keys)
 
    img=f['image'][:, :, 3] #240 240 4
@@ -83,11 +83,12 @@ with h5py.File('volume_1_slice_101.h5','r') as f:
 
 # img=decode.h5_to_jpg('volume_1_slice_101.h5',3,True)
 
-print(img.shape)
-print(img.dtype)
+# print(img.shape)
+# print(img.dtype)
 img_last = torch.tensor(img).float()
 img_matrix = np.array(img)
-H, W = img_matrix.shape[:2]
+print(img_matrix.shape)
+H, W = img_matrix.shape
 size = max(H, W)
 matrix_Low, matrix_High = dwt_matrix(size)
 LL, LH, HL, HH = dwt(img_last,matrix_Low,matrix_High)
