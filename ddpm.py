@@ -36,29 +36,39 @@ class LinearNoiseSampler(nn.Module):
 
     def sample_previous_timestep(self,x_t,time,noise_pred,x_hat):
 
-        sqrt_alpha_cumulative=self.alpha_cumulative_sqrt[time]
-
         # clamp time-1 to 0 to avoid negative index wrapping to the last element
         time_prev = t.clamp(time - 1, min=0)
 
-        # model predicts loss_coeff which simplifies to standard DDPM x_0 recovery
+        # predict x_0 — loss_coeff simplifies to standard DDPM epsilon
         x_0 = (x_t-(self.alpha_cumulative_1_sqrt[time]*noise_pred))/self.alpha_cumulative_sqrt[time]
-
         x_0 = t.clamp(x_0,-1,1)
 
-        # reconstruct x_{t-1} using conditioned forward formula so noise is guided by LL (x_hat)
+        lambda_t = self.lambdas[time]
         lambda_prev = self.lambdas[time_prev]
-        sqrt_alpha_cum_prev = self.alpha_cumulative_sqrt[time_prev]
+        delta_t = self.deltas[time]
         delta_prev = self.deltas[time_prev]
-        mean_pred = (1 - lambda_prev) * sqrt_alpha_cum_prev * x_0 + lambda_prev * sqrt_alpha_cum_prev * x_hat
+        sqrt_alpha_t = t.sqrt(self.alpha[time])
+        sqrt_alpha_bar_t = self.alpha_cumulative_sqrt[time]
+        sqrt_alpha_bar_prev = self.alpha_cumulative_sqrt[time_prev]
+
+        # one-step forward q(x_t | x_{t-1}, x_hat) transition parameters
+        a = (1 - lambda_t) * sqrt_alpha_t / (1 - lambda_prev)
+        b = sqrt_alpha_bar_t * (lambda_t - lambda_prev) / (1 - lambda_prev)
+        # conditional variance of q(x_t | x_{t-1}, x_hat)
+        beta_tilde = t.clamp(delta_t - a**2 * delta_prev, min=1e-8)
+
+        # prior mean q(x_{t-1} | x_0, x_hat)
+        mu_prior = (1 - lambda_prev) * sqrt_alpha_bar_prev * x_0 + lambda_prev * sqrt_alpha_bar_prev * x_hat
+
+        # true posterior q(x_{t-1} | x_t, x_0, x_hat) via Bayes on two Gaussians
+        post_var = beta_tilde * delta_prev / delta_t
+        mean_pred = (delta_prev / delta_t) * a * (x_t - b * x_hat) + (beta_tilde / delta_t) * mu_prior
 
         if time==0:
             return mean_pred , x_0,x_hat
 
         else:
-            # re-noise at t-1 scale using conditioned forward variance
-            sigma = t.sqrt(delta_prev)
-            return mean_pred + t.randn(x_t.shape).to(x_t.device) * sigma , x_0,x_hat
+            return mean_pred + t.randn(x_t.shape).to(x_t.device) * t.sqrt(post_var) , x_0,x_hat
 
    
 
