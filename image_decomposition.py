@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import pywt
 
-def dwt_matrix(size, wavelet_name='haar'):
+def dwt_matrix(size, wavelet_name='bior2.2'):
     # size should be the size of the image changed the input of the function to the image
     # to get its sizes
     wavelet = pywt.Wavelet(wavelet_name)

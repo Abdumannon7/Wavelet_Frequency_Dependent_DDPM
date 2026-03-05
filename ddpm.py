@@ -37,7 +37,6 @@ class LinearNoiseSampler(nn.Module):
     def sample_previous_timestep(self,x_t,time,noise_pred,x_hat):
 
         sqrt_alpha_cumulative=self.alpha_cumulative_sqrt[time]
-        sqrt_alpha=t.sqrt(self.alpha[time])
 
         # clamp time-1 to 0 to avoid negative index wrapping to the last element
         time_prev = t.clamp(time - 1, min=0)
@@ -47,17 +46,19 @@ class LinearNoiseSampler(nn.Module):
 
         x_0 = t.clamp(x_0,-1,1)
 
-        # use standard DDPM posterior mean — consistent with loss_coeff reducing to standard epsilon
-        mean_pred=(1/sqrt_alpha)*(x_t-(((self.betas[time])/(self.alpha_cumulative_1_sqrt[time]))*noise_pred))
+        # reconstruct x_{t-1} using conditioned forward formula so noise is guided by LL (x_hat)
+        lambda_prev = self.lambdas[time_prev]
+        sqrt_alpha_cum_prev = self.alpha_cumulative_sqrt[time_prev]
+        delta_prev = self.deltas[time_prev]
+        mean_pred = (1 - lambda_prev) * sqrt_alpha_cum_prev * x_0 + lambda_prev * sqrt_alpha_cum_prev * x_hat
 
         if time==0:
             return mean_pred , x_0,x_hat
 
         else:
-            # standard DDPM posterior variance
-            var=((self.betas[time])*(1-self.alpha_cumulative[time_prev]))/(1-self.alpha_cumulative[time])
-            sigma = t.sqrt(var)
-            return t.randn(x_t.shape).to(x_t.device)*sigma + mean_pred , x_0,x_hat
+            # re-noise at t-1 scale using conditioned forward variance
+            sigma = t.sqrt(delta_prev)
+            return mean_pred + t.randn(x_t.shape).to(x_t.device) * sigma , x_0,x_hat
 
    
 

@@ -2,7 +2,7 @@ dataset_params:
   train_path: 'chest_xray/train'
   test_path: 'chest_xray/test'
   target_class: 'NORMAL'
-  image_size: 64
+  image_size: 128
   num_workers: 4
 
 
@@ -13,9 +13,9 @@ diffusion_params:
 
 model_params:
   image_channels: 1
-  image_size: 32
-  down_channels: [32, 64, 128, 256]
-  mid_channels: [256, 256, 128]
+  image_size: 64
+  down_channels: [64, 128, 256, 512]
+  mid_channels: [512, 512, 256]
   down_sample: [True, True, False]
   time_emb_dim: 128
   num_down_layers: 2

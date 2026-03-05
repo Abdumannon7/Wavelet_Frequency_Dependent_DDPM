@@ -11,9 +11,10 @@ def get_time_embedding(timestep,t_emb_dim):
     return t_emb
 
 class DownBlock(nn.Module):
-    def __init__(self, in_channel,out_channel,t_emb_dim,down_sample,num_heads):
+    def __init__(self, in_channel,out_channel,t_emb_dim,down_sample,num_heads,use_attention=True):
         super().__init__()
         self.down_sample=down_sample
+        self.use_attention=use_attention
         self.resnet_1 = nn.Sequential(
 
             nn.GroupNorm(8,in_channel),
@@ -33,8 +34,10 @@ class DownBlock(nn.Module):
 
         )
 
-        self.attention_norm = nn.GroupNorm(8,out_channel)
-        self.attention=nn.MultiheadAttention(out_channel,num_heads,batch_first=True)
+        # only allocate attention layers when needed to save memory at high resolutions
+        if self.use_attention:
+            self.attention_norm = nn.GroupNorm(8,out_channel)
+            self.attention=nn.MultiheadAttention(out_channel,num_heads,batch_first=True)
         self.residual_input_conv = nn.Conv2d(in_channel,out_channel,kernel_size=1)
         self.down_sample_conv= nn.Conv2d(out_channel,out_channel,kernel_size=4,stride=2,padding=1) if self.down_sample else nn.Identity()
 
@@ -49,14 +52,14 @@ class DownBlock(nn.Module):
         out=out+ self.residual_input_conv(resnet_input)
 
         #attention block
-        batch_size,channel,h,w = out.shape
-        in_attention = out.reshape(batch_size,channel,h*w)
-        in_attention=self.attention_norm(in_attention)
-        in_attention=in_attention.transpose(1,2)  #(B, C, L) to (B, L, C) is the required format of multiheadattention in pytorch
-        # removed duplicate attention call with undefined 'ne' that would crash at runtime
-        out_attention,_=self.attention(in_attention,in_attention,in_attention)
-        out_attention=out_attention.transpose(1,2).reshape(batch_size,channel,h,w)
-        out=out+out_attention
+        if self.use_attention:
+            batch_size,channel,h,w = out.shape
+            in_attention = out.reshape(batch_size,channel,h*w)
+            in_attention=self.attention_norm(in_attention)
+            in_attention=in_attention.transpose(1,2)
+            out_attention,_=self.attention(in_attention,in_attention,in_attention)
+            out_attention=out_attention.transpose(1,2).reshape(batch_size,channel,h,w)
+            out=out+out_attention
 
         out=self.down_sample_conv(out)
         return out
@@ -141,9 +144,10 @@ class mid_block(nn.Module):
 
 
 class UpBlock(nn.Module):
-    def __init__(self, in_channel,out_channel,t_emb_dim,up_sample,num_heads):
+    def __init__(self, in_channel,out_channel,t_emb_dim,up_sample,num_heads,use_attention=True):
         super().__init__()
         self.up_sample=up_sample
+        self.use_attention=use_attention
         self.resnet_1 = nn.Sequential(
 
             nn.GroupNorm(8,in_channel),
@@ -163,8 +167,10 @@ class UpBlock(nn.Module):
 
         )
 
-        self.attention_norm = nn.GroupNorm(8,out_channel)
-        self.attention=nn.MultiheadAttention(out_channel,num_heads,batch_first=True)
+        # only allocate attention layers when needed to save memory at high resolutions
+        if self.use_attention:
+            self.attention_norm = nn.GroupNorm(8,out_channel)
+            self.attention=nn.MultiheadAttention(out_channel,num_heads,batch_first=True)
         self.residual_input_conv = nn.Conv2d(in_channel,out_channel,kernel_size=1)
         # upsample operates on pre-concat channels (in_channel//2) to double spatial dims
         self.up_sample_conv= nn.ConvTranspose2d(in_channel//2,in_channel//2,kernel_size=4,stride=2,padding=1) if self.up_sample else nn.Identity()
@@ -185,14 +191,14 @@ class UpBlock(nn.Module):
         out=out+ self.residual_input_conv(resnet_input)
 
         #attention block
-        batch_size,channel,h,w = out.shape
-        in_attention = out.reshape(batch_size,channel,h*w)
-        in_attention=self.attention_norm(in_attention)
-        in_attention=in_attention.transpose(1,2)  #(B, C, L) -> (B, L, C) is the required format of multiheadattention in pytorch
-        # removed duplicate attention call with undefined 'ne' that would crash at runtime
-        out_attention,_=self.attention(in_attention,in_attention,in_attention)
-        out_attention=out_attention.transpose(1,2).reshape(batch_size,channel,h,w)
-        out=out+out_attention
+        if self.use_attention:
+            batch_size,channel,h,w = out.shape
+            in_attention = out.reshape(batch_size,channel,h*w)
+            in_attention=self.attention_norm(in_attention)
+            in_attention=in_attention.transpose(1,2)
+            out_attention,_=self.attention(in_attention,in_attention,in_attention)
+            out_attention=out_attention.transpose(1,2).reshape(batch_size,channel,h,w)
+            out=out+out_attention
 
         return out
 
@@ -202,10 +208,15 @@ class Unet(nn.Module):
     def __init__(self, config):
         super().__init__()
         in_channel = config['image_channels']
-        self.down_channels=[32,64,128,256]
-        self.mid_channels=[256,256,128]
-        self.t_emb_dim=128
-        self.down_sample = [True,True,False]
+        # use config values instead of hardcoded ones
+        self.down_channels = config['down_channels']
+        self.mid_channels = config['mid_channels']
+        self.t_emb_dim = config['time_emb_dim']
+        self.down_sample = config['down_sample']
+        num_heads = config['num_heads']
+        # only use attention at spatial sizes <= this threshold to save memory
+        attn_resolution = config.get('attn_resolution', 16)
+        image_size = config['image_size']
 
         self.t_proj=nn.Sequential(
 
@@ -215,19 +226,23 @@ class Unet(nn.Module):
 
         )   #to get initial time step representation
 
-        # [True,True,False] so up_sample[i] mirrors down_sample[i] when iterated in reverse
-        self.up_sample = [True,True,False]
+        self.up_sample = list(reversed(self.down_sample))
 
         # in_channel*2 to accept concatenated conditioning input (noisy HF + LL band)
         self.conv_in = nn.Conv2d(in_channel * 2,self.down_channels[0],kernel_size=3,padding=1)
 
+        # compute spatial size at each level to decide where attention is applied
         self.downs = nn.ModuleList([])
+        cur_size = image_size
         for i in range(len(self.down_channels)-1):
-            self.downs.append(DownBlock(self.down_channels[i],self.down_channels[i+1],self.t_emb_dim,down_sample=self.down_sample[i],num_heads=4))
+            use_attn = cur_size <= attn_resolution
+            self.downs.append(DownBlock(self.down_channels[i],self.down_channels[i+1],self.t_emb_dim,down_sample=self.down_sample[i],num_heads=num_heads,use_attention=use_attn))
+            if self.down_sample[i]:
+                cur_size = cur_size // 2
 
         self.mids=nn.ModuleList([])
         for i in range(len(self.mid_channels)-1):
-            self.mids.append(mid_block(self.mid_channels[i],self.mid_channels[i+1],self.t_emb_dim,num_heads=4))
+            self.mids.append(mid_block(self.mid_channels[i],self.mid_channels[i+1],self.t_emb_dim,num_heads=num_heads))
 
         # track actual output channels through the up path to fix dimension mismatch
         self.ups=nn.ModuleList([])
@@ -236,7 +251,11 @@ class Unet(nn.Module):
             skip_ch = self.down_channels[i]
             in_ch = prev_out_ch + skip_ch
             out_ch = self.down_channels[i-1] if i!=0 else 16
-            self.ups.append(UpBlock(in_ch, out_ch, self.t_emb_dim, up_sample=self.up_sample[i], num_heads=4))
+            # mirror the attention decision from the corresponding down block
+            if self.up_sample[len(self.down_channels)-2-i]:
+                cur_size = cur_size * 2
+            use_attn = cur_size <= attn_resolution
+            self.ups.append(UpBlock(in_ch, out_ch, self.t_emb_dim, up_sample=self.up_sample[len(self.down_channels)-2-i], num_heads=num_heads,use_attention=use_attn))
             prev_out_ch = out_ch
 
 
