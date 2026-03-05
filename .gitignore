@@ -6,3 +6,7 @@ __pycache__
 *.pyc
 *.pkl
 *.log
+default_wrong_
+default
+chest_xray
+.claude

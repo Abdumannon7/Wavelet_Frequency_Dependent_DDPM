@@ -9,7 +9,8 @@ class LinearNoiseSampler(nn.Module):
         self.beta_end=beta_end
 
         # register_buffer so tensors move to GPU with .to(device)
-        self.register_buffer('lambdas', t.linspace(0,1,timesteps))
+        # avoid 0 and 1 at endpoints to prevent division by zero in sampling
+        self.register_buffer('lambdas', t.linspace(1e-4,1-1e-4,timesteps))
         self.register_buffer('betas', t.linspace(beta_begin,beta_end, timesteps))
         self.register_buffer('alpha', 1-self.betas)
 
@@ -28,43 +29,34 @@ class LinearNoiseSampler(nn.Module):
         # sqrt_alpha_cumulative_1=self.alpha_cumulative_1_sqrt[time].reshape(batch_size,1,1,1)
         lambda_t = self.lambdas[time].reshape(batch_size,1,1,1)
         delta_t = self.deltas[time].reshape(batch_size,1,1,1)
-        # x_t=(sqrt_alpha_cumulative*x_0)+(sqrt_alpha_cumulative_1*noise)
-        x_t= ((1-lambda_t)*(sqrt_alpha_cumulative*x_0) )+(lambda_t*sqrt_alpha_cumulative*x_hat)+(delta_t*noise)
+        # use sqrt(delta_t) not delta_t — noise is scaled by std dev, not variance
+        x_t= ((1-lambda_t)*(sqrt_alpha_cumulative*x_0) )+(lambda_t*sqrt_alpha_cumulative*x_hat)+(t.sqrt(delta_t)*noise)
         return x_t
     
 
     def sample_previous_timestep(self,x_t,time,noise_pred,x_hat):
 
         sqrt_alpha_cumulative=self.alpha_cumulative_sqrt[time]
-        delta_t = self.deltas[time]
-        delta_t_1=self.deltas[time-1]
-        lambda_t = self.lambdas[time]
-        lambda_t_1 =self.lambdas[time-1]
-
         sqrt_alpha=t.sqrt(self.alpha[time])
-        # x_0=(x_t-(self.alpha_cumulative_1_sqrt[time]*noise_pred))/self.alpha_cumulative_sqrt[time]
-        x_0 = (x_t-((lambda_t*sqrt_alpha_cumulative*x_hat)+(delta_t*noise_pred)))/((1-lambda_t)*(sqrt_alpha_cumulative))
+
+        # clamp time-1 to 0 to avoid negative index wrapping to the last element
+        time_prev = t.clamp(time - 1, min=0)
+
+        # model predicts loss_coeff which simplifies to standard DDPM x_0 recovery
+        x_0 = (x_t-(self.alpha_cumulative_1_sqrt[time]*noise_pred))/self.alpha_cumulative_sqrt[time]
 
         x_0 = t.clamp(x_0,-1,1)
 
-        delta_t_t1 = delta_t-(((1-lambda_t)/(1-lambda_t_1))**2)*self.alpha[time]*delta_t_1
-        
-        phi_x= ((delta_t_1*(1-lambda_t)*sqrt_alpha)/(delta_t*(1-lambda_t_1))) + (((1-lambda_t_1)*delta_t_t1)/(delta_t*sqrt_alpha))
-        phi_x_hat = ((lambda_t_1*delta_t)-((lambda_t*(1-lambda_t)*self.alpha[time]*delta_t_1)/(1-lambda_t_1)))*self.alpha_cumulative_sqrt[time-1]/delta_t
-        phi_noise = (1-lambda_t_1*delta_t_t1*self.alpha_cumulative_1_sqrt[time])/(delta_t*sqrt_alpha)
-  
-        # mean_pred=(1/t.sqrt(self.alpha[time]))*(x_t-(((self.betas[time])/(self.alpha_cumulative_1_sqrt[time]))*noise_pred))
-        mean_pred = (phi_x*x_t)+(phi_x_hat*x_hat)-(phi_noise*noise_pred)
-        # mean_pred=0
+        # use standard DDPM posterior mean — consistent with loss_coeff reducing to standard epsilon
+        mean_pred=(1/sqrt_alpha)*(x_t-(((self.betas[time])/(self.alpha_cumulative_1_sqrt[time]))*noise_pred))
+
         if time==0:
             return mean_pred , x_0,x_hat
-        
-        else:
-            # var=((self.betas[time])*(1-self.alpha_cumulative[time-1]))/(1-self.alpha_cumulative[time])
-            sigma = t.sqrt(delta_t)
 
-            # sigma = var**0.5
-            #reparametrisation trick
+        else:
+            # standard DDPM posterior variance
+            var=((self.betas[time])*(1-self.alpha_cumulative[time_prev]))/(1-self.alpha_cumulative[time])
+            sigma = t.sqrt(var)
             return t.randn(x_t.shape).to(x_t.device)*sigma + mean_pred , x_0,x_hat
 
    

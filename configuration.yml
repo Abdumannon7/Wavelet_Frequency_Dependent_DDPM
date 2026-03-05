@@ -1,20 +1,9 @@
 dataset_params:
-  csv_path: "BraTS20 Training Metadata.csv"
-  data_root: "../input/brats2020-training-data/BraTS2020_training_data/content/data/"
-  
-  # Filtering Thresholds
-  min_slice: 40
-  max_slice: 124
-  tumor_threshold: 100
-  
-  # Training Target ('significant_tumor' or 'no_tumor')
-  target_class: "significant_tumor"
-  
-  # DataLoader params
-  batch_size: 128
-  shuffle_bool: true
+  train_path: 'chest_xray/train'
+  test_path: 'chest_xray/test'
+  target_class: 'NORMAL'
+  image_size: 64
   num_workers: 4
-  channel_index: 3
 
 
 diffusion_params:
@@ -24,7 +13,7 @@ diffusion_params:
 
 model_params:
   image_channels: 1
-  image_size: 28
+  image_size: 32
   down_channels: [32, 64, 128, 256]
   mid_channels: [256, 256, 128]
   down_sample: [True, True, False]
@@ -38,10 +27,9 @@ model_params:
 train_params:
   output_folder: 'default'
   shuffle_bool: true
-  batch_size: 128
+  batch_size: 32
   num_epochs: 300
-  samples: 100
-  rows: 10
+  samples: 16
+  rows: 4
   learning_rate: 0.0001
-  shuffle_bool: true
   checkpoint_file: 'ddpm_wavelet.pth'
