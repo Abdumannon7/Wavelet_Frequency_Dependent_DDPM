@@ -55,7 +55,8 @@ def get_normal_subbands(dataset_config, num_samples):
     
     for idx in indices:
         rel_path = selected_df.iloc[idx]['slice_path']
-        h5_path = os.path.join(dataset_config.get('data_root', ''), rel_path)
+        filename = os.path.basename(rel_path)
+        h5_path = os.path.join(dataset_config.get('data_root', ''), filename)
         
         # Load image using h5_to_imgarray
         img_array = h5_to_imgarray(h5_path, channel_index=dataset_config.get('channel_index', 3), normalize=True)

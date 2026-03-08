@@ -13,3 +13,6 @@ chest_xray
 default_no_conditioning
 default_old
 default_wrong_conditioning
+default_2
+default_test
+brats

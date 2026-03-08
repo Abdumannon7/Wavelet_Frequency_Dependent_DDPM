@@ -5,8 +5,8 @@ dataset_params:
   image_size: 240
   num_workers: 2
 
-  csv_path: "F:/BraTS2020/BraTS20 Training Metadata.csv" #"BraTS20 Training Metadata.csv"
-  data_root: "F:/BraTS2020/BraTS2020_training_data/content/data"
+  csv_path: "/home/adon/Desktop/Wavelet_Frequency_Dependent_DDPM/brats/BraTS20 Training Metadata.csv" #"BraTS20 Training Metadata.csv"
+  data_root: "/home/adon/Desktop/Wavelet_Frequency_Dependent_DDPM/brats/BraTS2020_training_data/content/data"
   
   # Filtering Thresholds
   min_slice: 40
@@ -44,7 +44,7 @@ train_params:
   output_folder: 'default'
   shuffle_bool: true
   alpha: 0.84
-  num_epochs: 10
+  num_epochs: 100
   samples: 16
   rows: 4
   learning_rate: 0.0001

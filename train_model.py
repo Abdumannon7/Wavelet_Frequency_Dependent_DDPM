@@ -58,18 +58,7 @@ def train(args):
         os.mkdir(train_config['output_folder'])
 
 
-    # checkpoint
-    ckpt_path = os.path.join(train_config['output_folder'], train_config['checkpoint_file'])
-    if os.path.exists(ckpt_path):
-        print('Using checkpoint file')
-        ckpt = torch.load(ckpt_path, map_location=device)
-        model_LH.load_state_dict(ckpt['modelLH_state_dict'])
-        model_HL.load_state_dict(ckpt['modelHL_state_dict'])
-        model_HH.load_state_dict(ckpt['modelHH_state_dict'])
-
     # train params
-    print(f"\nTraining for {train_config['num_epochs']} epochs with batch size {dataset_config['batch_size']} on device {device}.")
-
     num_epochs = train_config['num_epochs']
     optimizer_LH = optim.Adam(model_LH.parameters(), lr=train_config['learning_rate'])
     criterion_LH = torch.nn.L1Loss(reduction='mean')
@@ -79,6 +68,24 @@ def train(args):
 
     optimizer_HH = optim.Adam(model_HH.parameters(), lr=train_config['learning_rate'])
     criterion_HH = torch.nn.L1Loss(reduction='mean')
+
+    # checkpoint
+    start_epoch = 0
+    ckpt_path = os.path.join(train_config['output_folder'], train_config['checkpoint_file'])
+    if os.path.exists(ckpt_path):
+        print('Using checkpoint file')
+        ckpt = torch.load(ckpt_path, map_location=device)
+        model_LH.load_state_dict(ckpt['modelLH_state_dict'])
+        model_HL.load_state_dict(ckpt['modelHL_state_dict'])
+        model_HH.load_state_dict(ckpt['modelHH_state_dict'])
+        if 'optimizerLH_state_dict' in ckpt:
+            optimizer_LH.load_state_dict(ckpt['optimizerLH_state_dict'])
+            optimizer_HL.load_state_dict(ckpt['optimizerHL_state_dict'])
+            optimizer_HH.load_state_dict(ckpt['optimizerHH_state_dict'])
+        if 'epoch' in ckpt:
+            start_epoch = ckpt['epoch'] + 1
+
+    print(f"\nTraining for {train_config['num_epochs']} epochs (starting from {start_epoch}) with batch size {dataset_config['batch_size']} on device {device}.")
     # precompute DWT matrices (constant for fixed image size)
     matrix_Low, matrix_High = dwt_transforms.dwt_matrix(dataset_config['image_size'])
     matrix_Low = matrix_Low.to(device)
@@ -89,14 +96,14 @@ def train(args):
     history_HL = []
     history_HH = []
 
-    print("\nStarting training loop...")
+    print("\nStarting training loop")
     # training
-    for epoch_idx in range(num_epochs):
+    for epoch_idx in range(start_epoch, num_epochs):
         losses_LH = []
         losses_HL = []
         losses_HH = []
 
-        for batch_idx, image in enumerate(tqdm(train_loader, desc=f'Epoch {epoch_idx+1}/{num_epochs}')):
+        for batch_idx, image in enumerate(train_loader):
             optimizer_LH.zero_grad()
             optimizer_HL.zero_grad()
             optimizer_HH.zero_grad()
@@ -119,7 +126,8 @@ def train(args):
             noise_LH = scheduler.loss_coeff(noise_lh, t, LH_img, x_hat)
             noisy_image_LH = scheduler.added_noise(LH_img, t, noise_lh, x_hat)
             noise_pred_LH = model_LH(torch.cat([noisy_image_LH, x_hat], dim=1), t)
-            ssim_LH=1 - ssim((noise_pred_LH).to(device), (noise_LH).to(device), data_range=2.0, size_average=True)
+            dr_LH = (noise_LH.max() - noise_LH.min()).clamp(min=1e-4).item()
+            ssim_LH=1 - ssim(noise_pred_LH, noise_LH, data_range=dr_LH, size_average=True)
             loss_LH_l1 = criterion_LH(noise_pred_LH, noise_LH)
             loss_LH=(alpha*ssim_LH)+((1-alpha)*loss_LH_l1)
             losses_LH.append(loss_LH.item())
@@ -131,7 +139,8 @@ def train(args):
             noise_pred_HL = model_HL(torch.cat([noisy_image_HL, x_hat], dim=1), t)
 
             loss_HL_l1 = criterion_HL(noise_pred_HL, noise_HL)
-            ssim_HL=1 - ssim((noise_pred_HL).to(device), (noise_HL).to(device), data_range=2.0, size_average=True)
+            dr_HL = (noise_HL.max() - noise_HL.min()).clamp(min=1e-4).item()
+            ssim_HL=1 - ssim(noise_pred_HL, noise_HL, data_range=dr_HL, size_average=True)
             loss_HL=(alpha*ssim_HL)+((1-alpha)*loss_HL_l1)
             losses_HL.append(loss_HL.item())
             loss_HL.backward()
@@ -142,7 +151,8 @@ def train(args):
             noise_pred_HH = model_HH(torch.cat([noisy_image_HH, x_hat], dim=1), t)
 
             loss_HH_l1 = criterion_HH(noise_pred_HH, noise_HH)
-            ssim_HH=1 - ssim((noise_pred_HH).to(device), (noise_HH).to(device), data_range=2.0, size_average=True)
+            dr_HH = (noise_HH.max() - noise_HH.min()).clamp(min=1e-4).item()
+            ssim_HH=1 - ssim(noise_pred_HH, noise_HH, data_range=dr_HH, size_average=True)
             loss_HH=(alpha*ssim_HH)+((1-alpha)*loss_HH_l1)
             losses_HH.append(loss_HH.item())
             loss_HH.backward()
@@ -159,7 +169,11 @@ def train(args):
         torch.save({
             'modelLH_state_dict': model_LH.state_dict(),
             'modelHL_state_dict': model_HL.state_dict(),
-            'modelHH_state_dict': model_HH.state_dict()
+            'modelHH_state_dict': model_HH.state_dict(),
+            'optimizerLH_state_dict': optimizer_LH.state_dict(),
+            'optimizerHL_state_dict': optimizer_HL.state_dict(),
+            'optimizerHH_state_dict': optimizer_HH.state_dict(),
+            'epoch': epoch_idx
         }, ckpt_path)
 
     # save training loss curve

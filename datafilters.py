@@ -25,7 +25,8 @@ def analyze_tumor_distribution(csv_path, min_slice=40, max_slice=124, tumor_thre
     
     # --- Filter 1: Exclude extreme top and bottom slices ---
     # Keep only the slices in the "mid-brain" region
-    mid_brain_df = df[(df['slice'] >= min_slice) & (df['slice'] <= max_slice)].copy()
+    valid_slices = list(range(min_slice, max_slice + 1, 5))
+    mid_brain_df = df[df['slice'].isin(valid_slices)].copy()
     mid_brain_count = len(mid_brain_df)
     print(f"\nApplied Slice Filter (Keep slices {min_slice} to {max_slice}):")
     print(f"  -> Slices retained: {mid_brain_count} (Excluded {initial_count - mid_brain_count} extreme slices)")
@@ -79,7 +80,8 @@ class BraTSBasicDataset(Dataset):
 
     def __getitem__(self, idx):
         rel_path = self.df.loc[idx, 'slice_path']
-        h5_path = os.path.join(self.data_root, rel_path) if self.data_root else rel_path
+        filename = os.path.basename(rel_path)
+        h5_path = os.path.join(self.data_root, filename) if self.data_root else rel_path
         
         # Fetch the normalized 0-255 uint8 numpy array
         img_array = h5_to_imgarray(h5_path, channel_index=self.channel_index, normalize=True)
