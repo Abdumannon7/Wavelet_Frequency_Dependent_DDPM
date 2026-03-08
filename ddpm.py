@@ -29,10 +29,9 @@ class LinearNoiseSampler(nn.Module):
         # sqrt_alpha_cumulative_1=self.alpha_cumulative_1_sqrt[time].reshape(batch_size,1,1,1)
         lambda_t = self.lambdas[time].reshape(batch_size,1,1,1)
         delta_t = self.deltas[time].reshape(batch_size,1,1,1)
-        # use sqrt(delta_t) not delta_t — noise is scaled by std dev, not variance
-        x_t= ((1-lambda_t)*(sqrt_alpha_cumulative*x_0) )+(lambda_t*sqrt_alpha_cumulative*x_hat)+(t.sqrt(delta_t)*noise)
+        x_t = ((1 - lambda_t) * (sqrt_alpha_cumulative * x_0)) + (lambda_t * sqrt_alpha_cumulative * x_hat) + (t.sqrt(delta_t) * noise)
         return x_t
-    
+
 
     def sample_previous_timestep(self,x_t,time,noise_pred,x_hat):
 
@@ -47,31 +46,23 @@ class LinearNoiseSampler(nn.Module):
         lambda_prev = self.lambdas[time_prev]
         delta_t = self.deltas[time]
         delta_prev = self.deltas[time_prev]
+        alpha_t=self.alpha[time]
         sqrt_alpha_t = t.sqrt(self.alpha[time])
-        sqrt_alpha_bar_t = self.alpha_cumulative_sqrt[time]
+        alpha_bar_t = self.alpha_cumulative[time]
         sqrt_alpha_bar_prev = self.alpha_cumulative_sqrt[time_prev]
-
-        # one-step forward q(x_t | x_{t-1}, x_hat) transition parameters
-        a = (1 - lambda_t) * sqrt_alpha_t / (1 - lambda_prev)
-        b = sqrt_alpha_bar_t * (lambda_t - lambda_prev) / (1 - lambda_prev)
-        # conditional variance of q(x_t | x_{t-1}, x_hat)
-        beta_tilde = t.clamp(delta_t - a**2 * delta_prev, min=1e-8)
-
-        # prior mean q(x_{t-1} | x_0, x_hat)
-        mu_prior = (1 - lambda_prev) * sqrt_alpha_bar_prev * x_0 + lambda_prev * sqrt_alpha_bar_prev * x_hat
-
-        # true posterior q(x_{t-1} | x_t, x_0, x_hat) via Bayes on two Gaussians
-        post_var = beta_tilde * delta_prev / delta_t
-        mean_pred = (delta_prev / delta_t) * a * (x_t - b * x_hat) + (beta_tilde / delta_t) * mu_prior
+        a = ((1 - lambda_t) / (1 - lambda_prev))
+        delta_t_given_prev = delta_t - ((alpha_t * delta_prev) * (a ** 2))
+        phi_x = ((delta_prev*a*sqrt_alpha_t)+((1-lambda_prev)*delta_t_given_prev/sqrt_alpha_t))/delta_t
+        phi_x_hat = (sqrt_alpha_bar_prev/delta_t)*((lambda_prev*delta_t)-(lambda_t*alpha_t*delta_prev*a))
+        phi_noise = ((1-lambda_prev)*delta_t_given_prev*(t.sqrt(1-alpha_bar_t)))/(delta_t*sqrt_alpha_t)
+        mean_pred= (phi_x*x_t)+(phi_x_hat*x_hat)-(phi_noise*noise_pred)
 
         if time==0:
             return mean_pred , x_0,x_hat
 
         else:
-            return mean_pred + t.randn(x_t.shape).to(x_t.device) * t.sqrt(post_var) , x_0,x_hat
-
-   
-
+            z=t.randn(x_t.shape).to(x_t.device)
+            return mean_pred + (z * t.sqrt(delta_t)) , x_0,x_hat #reparameterisation for sampling
 
     def loss_coeff(self,noise,time,x_0,x_hat):
         x_0_shape=x_0.shape
@@ -85,20 +76,3 @@ class LinearNoiseSampler(nn.Module):
         coeff=alpha_cum_1_sqrt_inv*((lambda_t*alpha_cum_sqrt*(x_hat-x_0))+(delta_t_sqrt*noise))
 
         return coeff
-
-
-
-
-
-
-
-
-             
-
-
-
-
-
-
-
-        

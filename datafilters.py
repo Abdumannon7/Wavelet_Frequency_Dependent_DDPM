@@ -1,4 +1,9 @@
 import pandas as pd
+from torch.utils.data import DataLoader, Dataset
+import torch
+from decode import h5_to_imgarray
+import numpy as np
+import os
 
 
 def analyze_tumor_distribution(csv_path, min_slice=40, max_slice=124, tumor_threshold=100):
@@ -20,7 +25,8 @@ def analyze_tumor_distribution(csv_path, min_slice=40, max_slice=124, tumor_thre
     
     # --- Filter 1: Exclude extreme top and bottom slices ---
     # Keep only the slices in the "mid-brain" region
-    mid_brain_df = df[(df['slice'] >= min_slice) & (df['slice'] <= max_slice)].copy()
+    valid_slices = list(range(min_slice, max_slice + 1, 5))
+    mid_brain_df = df[df['slice'].isin(valid_slices)].copy()
     mid_brain_count = len(mid_brain_df)
     print(f"\nApplied Slice Filter (Keep slices {min_slice} to {max_slice}):")
     print(f"  -> Slices retained: {mid_brain_count} (Excluded {initial_count - mid_brain_count} extreme slices)")
@@ -51,3 +57,82 @@ def analyze_tumor_distribution(csv_path, min_slice=40, max_slice=124, tumor_thre
     
     # Return the filtered dataframes so you can use them directly in your PyTorch Datasets
     return significant_tumor_df, no_tumor_df
+
+
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+class BraTSBasicDataset(Dataset):
+    def __init__(self, dataframe, data_root='', channel_index=3):
+        """
+        Args:
+            dataframe (pd.DataFrame): Filtered dataframe containing slice paths.
+            data_root (str): Base path to append to the relative paths in the CSV.
+            channel_index (int): Modality index (3 = FLAIR).
+        """
+        self.df = dataframe.reset_index(drop=True)
+        self.data_root = data_root
+        self.channel_index = channel_index
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        rel_path = self.df.loc[idx, 'slice_path']
+        filename = os.path.basename(rel_path)
+        h5_path = os.path.join(self.data_root, filename) if self.data_root else rel_path
+        
+        # Fetch the normalized 0-255 uint8 numpy array
+        img_array = h5_to_imgarray(h5_path, channel_index=self.channel_index, normalize=True)
+        
+        # Fallback for corrupted files
+        if img_array is None:
+            img_array = np.zeros((240, 240), dtype=np.uint8)
+            
+        # Convert to PyTorch Tensor. 
+       
+        img_tensor = torch.from_numpy(img_array).float().unsqueeze(0) / 255.0
+        img_tensor=(img_tensor-0.5)/0.5  #normalised the image 
+        return img_tensor
+
+
+def get_brats_dataloader(config):
+    """
+    Builds the dataloader based on the configuration dictionary.
+    """
+    print("Filtering metadata...")
+    sig_df, no_tumor_df = analyze_tumor_distribution(
+        csv_path=config['csv_path'],
+        min_slice=config.get('min_slice', 40),
+        max_slice=config.get('max_slice', 124),
+        tumor_threshold=config.get('tumor_threshold', 100)
+    )
+
+    # Select the target subset
+    if config['target_class'] == 'significant_tumor':
+        selected_df = sig_df
+    elif config['target_class'] == 'no_tumor':
+        selected_df = no_tumor_df
+    else:
+        raise ValueError("config['target_class'] must be 'significant_tumor' or 'no_tumor'")
+        
+    print(f"--> Building DataLoader with {len(selected_df)} {config['target_class']} slices.")
+
+    # Instantiate Dataset
+    dataset = BraTSBasicDataset(
+        dataframe=selected_df, 
+        data_root=config.get('data_root', ''),
+        channel_index=config.get('channel_index', 3) # Default to FLAIR
+    )
+    
+    # Instantiate DataLoader
+    dataloader = DataLoader(
+        dataset, 
+        batch_size=config.get('batch_size'), 
+        shuffle=config.get('shuffle_bool', True), 
+        num_workers=config.get('num_workers'),
+        pin_memory=False
+    )
+    
+    return dataloader
