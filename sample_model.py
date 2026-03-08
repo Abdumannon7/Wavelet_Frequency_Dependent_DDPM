@@ -12,6 +12,8 @@ import numpy as np
 import dwt_idwt_transforms as dwt_transforms
 from scipy.ndimage import uniform_filter
 import matplotlib.pyplot as plt
+from datafilters import analyze_tumor_distribution
+from decode import h5_to_imgarray
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -29,23 +31,48 @@ def compute_ssim(img1, img2, k1=0.01, k2=0.03, win_size=7):
     return float(ssim_map.mean())
 
 def get_normal_subbands(dataset_config, num_samples):
-    # Load multiple images and return all DWT subbands for conditioning and comparison
-    transform = transforms.Compose([
-        transforms.Grayscale(num_output_channels=1),
-        transforms.Resize((dataset_config['image_size'], dataset_config['image_size'])),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
-    ])
-    full_dataset = datasets.ImageFolder(root=dataset_config['train_path'], transform=transform)
-    normal_class_idx = full_dataset.class_to_idx[dataset_config['target_class']]
-    normal_indices = [i for i, (_, label) in enumerate(full_dataset.samples) if label == normal_class_idx]
-
-    # pick num_samples random normal images for diverse LL conditioning
-    chosen = np.random.choice(normal_indices, size=num_samples, replace=False)
-    imgs = torch.stack([full_dataset[i][0] for i in chosen])  # (N, 1, H, W)
-
+    """Load multiple images from H5 files and return all DWT subbands for conditioning and comparison"""
+    
+    # Analyze and filter the dataset
+    sig_df, no_tumor_df = analyze_tumor_distribution(
+        csv_path=dataset_config['csv_path'],
+        min_slice=dataset_config.get('min_slice', 40),
+        max_slice=dataset_config.get('max_slice', 124),
+        tumor_threshold=dataset_config.get('tumor_threshold', 100)
+    )
+    
+    # Select the target subset
+    if dataset_config['target_class'] == 'significant_tumor':
+        selected_df = sig_df
+    elif dataset_config['target_class'] == 'no_tumor':
+        selected_df = no_tumor_df
+    else:
+        raise ValueError("target_class must be 'significant_tumor' or 'no_tumor'")
+    
+    # Randomly select num_samples images
+    indices = np.random.choice(len(selected_df), size=num_samples, replace=False)
+    imgs = []
+    
+    for idx in indices:
+        rel_path = selected_df.iloc[idx]['slice_path']
+        h5_path = os.path.join(dataset_config.get('data_root', ''), rel_path)
+        
+        # Load image using h5_to_imgarray
+        img_array = h5_to_imgarray(h5_path, channel_index=dataset_config.get('channel_index', 3), normalize=True)
+        
+        if img_array is None:
+            img_array = np.zeros((240, 240), dtype=np.uint8)
+        
+        # Convert to tensor: scale to [0, 1]
+        img_tensor = torch.from_numpy(img_array).float().unsqueeze(0) / 255.0
+        imgs.append(img_tensor)
+    
+    imgs = torch.stack(imgs)  # (N, 1, 240, 240)
+    
+    # Compute DWT
     matrix_Low, matrix_High = dwt_transforms.dwt_matrix(dataset_config['image_size'])
     LL, LH, HL, HH = dwt_transforms.dwt(imgs, matrix_Low, matrix_High)
+    
     return LL.to(device), LH.to(device), HL.to(device), HH.to(device)
 
 def normalize_subband(s):
@@ -223,5 +250,6 @@ def sampling(model, scheduler, train_config, model_config, diffusion_config, x_h
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Sample from Wavelet DDPM')
     parser.add_argument('--config_path', type=str, default='configuration.yml')
+    parser.add_argument('--compare', default=True, action='store_true', help='Compare generated vs real images with metrics')
     args = parser.parse_args()
     inference(args)
