@@ -43,7 +43,7 @@ model_params:
 train_params:
   output_folder: 'default'
   shuffle_bool: true
-
+  alpha: 0.84
   num_epochs: 10
   samples: 16
   rows: 4

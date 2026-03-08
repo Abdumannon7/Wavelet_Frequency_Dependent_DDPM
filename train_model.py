@@ -11,86 +11,13 @@ import yaml
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
-import image_decomposition as dwt_transforms
-from datafilters import analyze_tumor_distribution
-from decode import h5_to_imgarray
+from pytorch_msssim import ssim
+import dwt_idwt_transforms as dwt_transforms
+from datafilters import get_brats_dataloader
+
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-class BraTSBasicDataset(Dataset):
-    def __init__(self, dataframe, data_root='', channel_index=3):
-        """
-        Args:
-            dataframe (pd.DataFrame): Filtered dataframe containing slice paths.
-            data_root (str): Base path to append to the relative paths in the CSV.
-            channel_index (int): Modality index (3 = FLAIR).
-        """
-        self.df = dataframe.reset_index(drop=True)
-        self.data_root = data_root
-        self.channel_index = channel_index
-
-    def __len__(self):
-        return len(self.df)
-
-    def __getitem__(self, idx):
-        rel_path = self.df.loc[idx, 'slice_path']
-        h5_path = os.path.join(self.data_root, rel_path) if self.data_root else rel_path
-        
-        # Fetch the normalized 0-255 uint8 numpy array
-        img_array = h5_to_imgarray(h5_path, channel_index=self.channel_index, normalize=True)
-        
-        # Fallback for corrupted files
-        if img_array is None:
-            img_array = np.zeros((240, 240), dtype=np.uint8)
-            
-        # Convert to PyTorch Tensor. 
-        # We scale / 255.0 to give your friends a nice [0.0, 1.0] float32 tensor to work with.
-        img_tensor = torch.from_numpy(img_array).float().unsqueeze(0) / 255.0
-        
-        return img_tensor
-
-
-def get_brats_dataloader(config):
-    """
-    Builds the dataloader based on the configuration dictionary.
-    """
-    print("Filtering metadata...")
-    sig_df, no_tumor_df = analyze_tumor_distribution(
-        csv_path=config['csv_path'],
-        min_slice=config.get('min_slice', 40),
-        max_slice=config.get('max_slice', 124),
-        tumor_threshold=config.get('tumor_threshold', 100)
-    )
-
-    # Select the target subset
-    if config['target_class'] == 'significant_tumor':
-        selected_df = sig_df
-    elif config['target_class'] == 'no_tumor':
-        selected_df = no_tumor_df
-    else:
-        raise ValueError("config['target_class'] must be 'significant_tumor' or 'no_tumor'")
-        
-    print(f"--> Building DataLoader with {len(selected_df)} {config['target_class']} slices.")
-
-    # Instantiate Dataset
-    dataset = BraTSBasicDataset(
-        dataframe=selected_df, 
-        data_root=config.get('data_root', ''),
-        channel_index=config.get('channel_index', 3) # Default to FLAIR
-    )
-    
-    # Instantiate DataLoader
-    dataloader = DataLoader(
-        dataset, 
-        batch_size=config.get('batch_size'), 
-        shuffle=config.get('shuffle_bool', True), 
-        num_workers=config.get('num_workers'),
-        pin_memory=False
-    )
-    
-    return dataloader
 
 
 def train(args):
@@ -113,23 +40,6 @@ def train(args):
                                         beta_begin=diffusion_config['beta_begin'],
                                         beta_end=diffusion_config['beta_end']).to(device)
 
-    # # dataset — NORMAL class only
-    # transform = transforms.Compose([
-    #     transforms.Grayscale(num_output_channels=1),
-    #     transforms.Resize((dataset_config['image_size'], dataset_config['image_size'])),
-    #     transforms.ToTensor(),
-    #     transforms.Normalize((0.5,), (0.5,))
-    # ])
-
-    # full_dataset = datasets.ImageFolder(root=dataset_config['train_path'], transform=transform)
-    # normal_class_idx = full_dataset.class_to_idx[dataset_config['target_class']]
-    # normal_indices = [i for i, (_, label) in enumerate(full_dataset.samples) if label == normal_class_idx]
-    # train_dataset = torch.utils.data.Subset(full_dataset, normal_indices)
-
-    # train_loader = DataLoader(dataset=train_dataset,
-    #                           batch_size=train_config['batch_size'],
-    #                           shuffle=train_config['shuffle_bool'],
-    #                           num_workers=dataset_config['num_workers'])
 
     # Build dataloader using BraTS function
     train_loader = get_brats_dataloader(dataset_config)
@@ -162,14 +72,13 @@ def train(args):
 
     num_epochs = train_config['num_epochs']
     optimizer_LH = optim.Adam(model_LH.parameters(), lr=train_config['learning_rate'])
-    criterion_LH = torch.nn.MSELoss()
+    criterion_LH = torch.nn.L1Loss(reduction='mean')
 
     optimizer_HL = optim.Adam(model_HL.parameters(), lr=train_config['learning_rate'])
-    criterion_HL = torch.nn.MSELoss()
+    criterion_HL = torch.nn.L1Loss(reduction='mean')
 
     optimizer_HH = optim.Adam(model_HH.parameters(), lr=train_config['learning_rate'])
-    criterion_HH = torch.nn.MSELoss()
-
+    criterion_HH = torch.nn.L1Loss(reduction='mean')
     # precompute DWT matrices (constant for fixed image size)
     matrix_Low, matrix_High = dwt_transforms.dwt_matrix(dataset_config['image_size'])
     matrix_Low = matrix_Low.to(device)
@@ -206,12 +115,13 @@ def train(args):
             noise_hh = torch.randn_like(HH_img).to(device)
 
             t = torch.randint(0, diffusion_config['timesteps'], (LH_img.shape[0],)).to(device)
-
+            alpha=train_config['alpha']
             noise_LH = scheduler.loss_coeff(noise_lh, t, LH_img, x_hat)
             noisy_image_LH = scheduler.added_noise(LH_img, t, noise_lh, x_hat)
             noise_pred_LH = model_LH(torch.cat([noisy_image_LH, x_hat], dim=1), t)
-
-            loss_LH = criterion_LH(noise_pred_LH, noise_LH)
+            ssim_LH=1 - ssim((noise_pred_LH).to(device), (noise_LH).to(device), data_range=2.0, size_average=True)
+            loss_LH_l1 = criterion_LH(noise_pred_LH, noise_LH)
+            loss_LH=(alpha*ssim_LH)+((1-alpha)*loss_LH_l1)
             losses_LH.append(loss_LH.item())
             loss_LH.backward()
             optimizer_LH.step()
@@ -220,7 +130,9 @@ def train(args):
             noisy_image_HL = scheduler.added_noise(HL_img, t, noise_hl, x_hat)
             noise_pred_HL = model_HL(torch.cat([noisy_image_HL, x_hat], dim=1), t)
 
-            loss_HL = criterion_HL(noise_pred_HL, noise_HL)
+            loss_HL_l1 = criterion_HL(noise_pred_HL, noise_HL)
+            ssim_HL=1 - ssim((noise_pred_HL).to(device), (noise_HL).to(device), data_range=2.0, size_average=True)
+            loss_HL=(alpha*ssim_HL)+((1-alpha)*loss_HL_l1)
             losses_HL.append(loss_HL.item())
             loss_HL.backward()
             optimizer_HL.step()
@@ -229,7 +141,9 @@ def train(args):
             noisy_image_HH = scheduler.added_noise(HH_img, t, noise_hh, x_hat)
             noise_pred_HH = model_HH(torch.cat([noisy_image_HH, x_hat], dim=1), t)
 
-            loss_HH = criterion_HH(noise_pred_HH, noise_HH)
+            loss_HH_l1 = criterion_HH(noise_pred_HH, noise_HH)
+            ssim_HH=1 - ssim((noise_pred_HH).to(device), (noise_HH).to(device), data_range=2.0, size_average=True)
+            loss_HH=(alpha*ssim_HH)+((1-alpha)*loss_HH_l1)
             losses_HH.append(loss_HH.item())
             loss_HH.backward()
             optimizer_HH.step()
@@ -255,7 +169,7 @@ def train(args):
     plt.plot(epochs, history_HL, label='HL')
     plt.plot(epochs, history_HH, label='HH')
     plt.xlabel('Epoch')
-    plt.ylabel('MSE Loss')
+    plt.ylabel('MAE+SSIM Loss')
     plt.title('Wavelet DDPM Training Loss')
     plt.legend()
     plt.grid(True)
