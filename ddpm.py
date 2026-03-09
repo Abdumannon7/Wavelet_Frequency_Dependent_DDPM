@@ -51,7 +51,7 @@ class LinearNoiseSampler(nn.Module):
         alpha_bar_t = self.alpha_cumulative[time]
         sqrt_alpha_bar_prev = self.alpha_cumulative_sqrt[time_prev]
         a = ((1 - lambda_t) / (1 - lambda_prev))
-        delta_t_given_prev = delta_t - ((alpha_t * delta_prev) * (a ** 2))
+        delta_t_given_prev = t.clamp(delta_t - ((alpha_t * delta_prev) * (a ** 2)), min=1e-8)
         phi_x = ((delta_prev*a*sqrt_alpha_t)+((1-lambda_prev)*delta_t_given_prev/sqrt_alpha_t))/delta_t
         phi_x_hat = (sqrt_alpha_bar_prev/delta_t)*((lambda_prev*delta_t)-(lambda_t*alpha_t*delta_prev*a))
         phi_noise = ((1-lambda_prev)*delta_t_given_prev*(t.sqrt(1-alpha_bar_t)))/(delta_t*sqrt_alpha_t)

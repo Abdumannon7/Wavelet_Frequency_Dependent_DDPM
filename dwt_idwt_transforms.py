@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import pywt
 
-def dwt_matrix(size, wavelet_name='bior2.2'):
+def dwt_matrix(size, wavelet_name='haar'):
     wavelet = pywt.Wavelet(wavelet_name)
     lo = np.array(wavelet.dec_lo)
     hi = np.array(wavelet.dec_hi)

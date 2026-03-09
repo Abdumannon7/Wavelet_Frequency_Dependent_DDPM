@@ -73,7 +73,8 @@ def get_normal_subbands(dataset_config, num_samples):
     imgs = torch.stack(imgs)  # (N, 1, 240, 240)
     
     # Compute DWT
-    matrix_Low, matrix_High = dwt_transforms.dwt_matrix(dataset_config['image_size'])
+    wavelet_name = dataset_config.get('wavelet', 'haar')
+    matrix_Low, matrix_High = dwt_transforms.dwt_matrix(dataset_config['image_size'], wavelet_name=wavelet_name)
     LL, LH, HL, HH = dwt_transforms.dwt(imgs, matrix_Low, matrix_High)
     
     return LL.to(device), LH.to(device), HL.to(device), HH.to(device)
@@ -117,6 +118,7 @@ def inference(args):
                                         beta_begin=diffusion_config['beta_begin'],
                                         beta_end=diffusion_config['beta_end']).to(device)
 
+    wavelet_name = dataset_config.get('wavelet', 'haar')
     LL, real_LH, real_HL, real_HH = get_normal_subbands(dataset_config, train_config['samples'])
 
     with torch.no_grad():
@@ -126,7 +128,7 @@ def inference(args):
 
         # IDWT matrices for reconstruction
         idwt_size = dataset_config['image_size']
-        low_mat, high_mat = dwt_transforms.idwt_matrix(idwt_size)
+        low_mat, high_mat = dwt_transforms.idwt_matrix(idwt_size, wavelet_name=wavelet_name)
         low_mat = low_mat.to(device)
         high_mat = high_mat.to(device)
 

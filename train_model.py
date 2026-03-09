@@ -87,7 +87,8 @@ def train(args):
 
     print(f"\nTraining for {train_config['num_epochs']} epochs (starting from {start_epoch}) with batch size {dataset_config['batch_size']} on device {device}.")
     # precompute DWT matrices (constant for fixed image size)
-    matrix_Low, matrix_High = dwt_transforms.dwt_matrix(dataset_config['image_size'])
+    wavelet_name = dataset_config.get('wavelet', 'haar')
+    matrix_Low, matrix_High = dwt_transforms.dwt_matrix(dataset_config['image_size'], wavelet_name=wavelet_name)
     matrix_Low = matrix_Low.to(device)
     matrix_High = matrix_High.to(device)
 
