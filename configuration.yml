@@ -24,7 +24,7 @@ dataset_params:
 
 
 diffusion_params:
-  timesteps: 200
+  timesteps: 1000
   beta_begin: 0.0001
   beta_end: 0.02
 
@@ -42,9 +42,9 @@ model_params:
 
 
 train_params:
-  output_folder: 'default_3'
+  output_folder: 'default2'
   shuffle_bool: true
-  alpha: 0.6
+  alpha: 0.84
   num_epochs: 100
   samples: 16
   rows: 4

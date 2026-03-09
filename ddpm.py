@@ -62,7 +62,8 @@ class LinearNoiseSampler(nn.Module):
 
         else:
             z=t.randn(x_t.shape).to(x_t.device)
-            return mean_pred + (z * t.sqrt(delta_t)) , x_0,x_hat #reparameterisation for sampling
+            # return mean_pred + (z * t.sqrt(delta_t)) , x_0,x_hat #reparameterisation for sampling
+            return mean_pred + (z * t.sqrt(delta_t_given_prev)) , x_0,x_hat  # Algorithm 2: posterior variance δ_{t|t-1}
 
     def loss_coeff(self,noise,time,x_0,x_hat):
         x_0_shape=x_0.shape

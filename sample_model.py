@@ -66,8 +66,10 @@ def get_normal_subbands(dataset_config, num_samples):
         if img_array is None:
             img_array = np.zeros((240, 240), dtype=np.uint8)
         
-        # Convert to tensor: scale to [0, 1]
+        # match training
         img_tensor = torch.from_numpy(img_array).float().unsqueeze(0) / 255.0
+        # img_tensor = img_tensor  # old: [0, 1] range — mismatched with training
+        img_tensor = (img_tensor - 0.5) / 0.5  # [-1, 1] to match datafilters.py
         imgs.append(img_tensor)
     
     imgs = torch.stack(imgs)  # (N, 1, 240, 240)
@@ -235,10 +237,20 @@ def inference(args):
 
 def sampling(model, scheduler, train_config, model_config, diffusion_config, x_hat):
 
-    x_t = torch.randn((train_config['samples'],
-                        model_config['image_channels'],
-                        model_config['image_size'],
-                        model_config['image_size'])).to(device=device)
+    # x_t = torch.randn((train_config['samples'],
+    #                     model_config['image_channels'],
+    #                     model_config['image_size'],
+    #                     model_config['image_size'])).to(device=device)
+
+    # Algorithm 2: x_T ~ N(sqrt(alpha_bar_T) * x_hat, delta_T * I)
+    T = diffusion_config['timesteps'] - 1
+    sqrt_alpha_bar_T = scheduler.alpha_cumulative_sqrt[T]
+    delta_T = scheduler.deltas[T]
+    z = torch.randn((train_config['samples'],
+                      model_config['image_channels'],
+                      model_config['image_size'],
+                      model_config['image_size'])).to(device=device)
+    x_t = sqrt_alpha_bar_T * x_hat + torch.sqrt(delta_T) * z
 
     for i in tqdm(reversed(range(diffusion_config['timesteps']))):
         noise_pred = model(torch.cat([x_t, x_hat], dim=1),
