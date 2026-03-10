@@ -11,6 +11,8 @@ dataset_params:
   # Filtering Thresholds
   min_slice: 40
   max_slice: 124
+
+  # Set to 100 for 'no_tumor' class, 1400 for 'significant_tumor' class.
   tumor_threshold: 1400
   
   # Training Target ('significant_tumor' or 'no_tumor')
