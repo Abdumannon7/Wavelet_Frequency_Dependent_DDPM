@@ -50,3 +50,24 @@ train_params:
   rows: 4
   learning_rate: 0.0001
   checkpoint_file: 'ddpm_wavelet.pth'
+
+
+classifier:
+  csv_path: "F:/Wavelet_Frequency_Dependent_DDPM/brats_train_val_test_split.csv"
+  data_root: "F:/BraTS2020/BraTS2020_training_data/content/data"
+  output_folder: "./classifier_output"
+  checkpoint_file: "resnet18_checkpoint.pth"
+  
+  # Training Hyperparameters
+  batch_size: 64
+  num_epochs: 20
+  learning_rate: 0.0001
+  
+  # Model and Data Params
+  in_channels: 1         # 1 for FLAIR. Change to 3 if feeding stacked DWTs later
+  resize_dim: 128        # Set to null to keep original 240x240 size
+  num_workers: 4
+  
+  # Filtering thresholds
+  min_slice: 40
+  max_slice: 124
