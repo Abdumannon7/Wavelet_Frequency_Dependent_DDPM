@@ -252,7 +252,11 @@ def sampling(model, scheduler, train_config, model_config, diffusion_config, x_h
                       model_config['image_size'])).to(device=device)
     x_t = sqrt_alpha_bar_T * x_hat + torch.sqrt(delta_T) * z
 
-    for i in tqdm(reversed(range(diffusion_config['timesteps']))):
+    for i in tqdm(reversed(range(diffusion_config['timesteps'])), 
+                  total=diffusion_config['timesteps'],
+                  desc="Sampling", 
+                  unit="step",
+                  ncols=100):
         noise_pred = model(torch.cat([x_t, x_hat], dim=1),
                            torch.as_tensor(i).unsqueeze(0).to(device))
 
